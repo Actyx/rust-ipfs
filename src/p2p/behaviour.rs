@@ -2,11 +2,10 @@ use crate::bitswap::{Bitswap, Strategy};
 use crate::block::Cid;
 use crate::p2p::{SwarmOptions, SwarmTypes};
 use crate::repo::Repo;
-use libp2p::{NetworkBehaviour, PeerId};
+use libp2p::{NetworkBehaviour};
 use libp2p::swarm::NetworkBehaviourEventProcess;
 use libp2p::core::muxing::{StreamMuxerBox, SubstreamRef};
 use libp2p::identify::{Identify, IdentifyEvent};
-use libp2p::kad::{Kademlia, KademliaEvent, record::store::MemoryStore};
 use libp2p::mdns::{Mdns, MdnsEvent};
 use libp2p::ping::{Ping, PingEvent};
 use libp2p::floodsub::{Floodsub, FloodsubEvent};
@@ -18,7 +17,6 @@ use tokio::prelude::*;
 #[derive(NetworkBehaviour)]
 pub struct Behaviour<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes> {
     mdns: Mdns<TSubstream>,
-    kademlia: Kademlia<TSubstream, MemoryStore>,
     bitswap: Bitswap<TSubstream, TSwarmTypes>,
     ping: Ping<TSubstream>,
     identify: Identify<TSubstream>,
@@ -33,7 +31,7 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes>
         match event {
             MdnsEvent::Discovered(list) => {
                 for (peer, _) in list {
-                    debug!("mdns: Discovered peer {}", peer.to_base58());
+                    info!("mdns: Discovered peer {}", peer.to_base58());
                     self.bitswap.connect(peer.clone());
                     self.floodsub.add_node_to_partial_view(peer);
                 }
@@ -41,7 +39,7 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes>
             MdnsEvent::Expired(list) => {
                 for (peer, _) in list {
                     if !self.mdns.has_node(&peer) {
-                        debug!("mdns: Expired peer {}", peer.to_base58());
+                        info!("mdns: Expired peer {}", peer.to_base58());
                         self.floodsub.remove_node_from_partial_view(&peer);
                     }
                 }
@@ -50,55 +48,14 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes>
     }
 }
 
-impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes>
-    NetworkBehaviourEventProcess<KademliaEvent> for
-    Behaviour<TSubstream, TSwarmTypes>
-{
-    fn inject_event(&mut self, event: KademliaEvent) {
-        use libp2p::kad::{GetProvidersOk, GetProvidersError};
-
-        match event {
-            KademliaEvent::Discovered { peer_id, addresses: _, ty } => {
-                debug!("kad: Discovered peer {} {:?}", peer_id.to_base58(), ty);
-            }
-            // FIXME: unsure what this has been superceded with... perhaps with GetRecordResult?
-            /*
-            KademliaEvent::FindNodeResult { key, closer_peers } => {
-                if closer_peers.is_empty() {
-                    info!("kad: Could not find closer peer to {}", key.to_base58());
-                }
-                for peer in closer_peers {
-                    info!("kad: Found closer peer {} to {}", peer.to_base58(), key.to_base58());
-                }
-            }*/
-            KademliaEvent::GetProvidersResult(Ok(GetProvidersOk { key, providers, closest_peers })) => {
-                // FIXME: really wasteful to run this through Vec
-                let cid = PeerId::from_bytes(key.to_vec()).unwrap().to_base58();
-                if providers.is_empty() {
-                    // FIXME: not sure if this is possible
-                    info!("kad: Could not find provider for {}", cid);
-                } else {
-                    for peer in closest_peers {
-                        info!("kad: {} provided by {}", cid, peer.to_base58());
-                        self.bitswap.connect(peer);
-                    }
-                }
-            },
-            KademliaEvent::GetProvidersResult(Err(GetProvidersError::Timeout { key, .. })) => {
-                // FIXME: really wasteful to run this through Vec
-                let cid = PeerId::from_bytes(key.to_vec()).unwrap().to_base58();
-                warn!("kad: timed out get providers query for {}", cid);
-            },
-            x => { debug!("kad ignored event {:?}", x); },
-        }
-    }
-}
 
 impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes>
     NetworkBehaviourEventProcess<()> for
     Behaviour<TSubstream, TSwarmTypes>
 {
-    fn inject_event(&mut self, _event: ()) {}
+    fn inject_event(&mut self, _event: ()) {
+
+    }
 }
 
 impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes>
@@ -129,7 +86,7 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes>
     Behaviour<TSubstream, TSwarmTypes>
 {
     fn inject_event(&mut self, event: IdentifyEvent) {
-        debug!("identify: {:?}", event);
+        info!("identify: {:?}", event);
     }
 }
 
@@ -138,25 +95,16 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes>
     Behaviour<TSubstream, TSwarmTypes>
 {
     fn inject_event(&mut self, event: FloodsubEvent) {
-        debug!("floodsub: {:?}", event);
+        info!("floodsub: {:?}", event);
     }
 }
 
 impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes> Behaviour<TSubstream, TSwarmTypes>
 {
-    /// Create a Kademlia behaviour with the IPFS bootstrap nodes.
     pub fn new(options: SwarmOptions<TSwarmTypes>, repo: Repo<TSwarmTypes>) -> Self {
         info!("Local peer id: {}", options.peer_id.to_base58());
 
         let mdns = Mdns::new().expect("Failed to create mDNS service");
-
-        let store = libp2p::kad::record::store::MemoryStore::new(options.peer_id.to_owned());
-
-        let mut kademlia = Kademlia::new(options.peer_id.to_owned(), store);
-        for (addr, peer_id) in &options.bootstrap {
-            kademlia.add_address(peer_id, addr.to_owned());
-        }
-
         let strategy = TSwarmTypes::TStrategy::new(repo);
         let bitswap = Bitswap::new(strategy);
         let ping = Ping::default();
@@ -169,7 +117,6 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes> Behaviour<TSub
 
         Behaviour {
             mdns,
-            kademlia,
             bitswap,
             ping,
             identify,
@@ -179,21 +126,15 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes> Behaviour<TSub
 
     pub fn want_block(&mut self, cid: Cid) {
         info!("Want block {}", cid.to_string());
-        //let hash = Multihash::from_bytes(cid.to_bytes()).unwrap();
-        //self.kademlia.get_providers(hash);
         self.bitswap.want_block(cid, 1);
     }
 
     pub fn provide_block(&mut self, cid: Cid) {
         info!("Providing block {}", cid.to_string());
-        //let hash = Multihash::from_bytes(cid.to_bytes()).unwrap();
-        //self.kademlia.add_providing(PeerId::from_multihash(hash).unwrap());
     }
 
     pub fn stop_providing_block(&mut self, cid: &Cid) {
         info!("Finished providing block {}", cid.to_string());
-        //let hash = Multihash::from_bytes(cid.to_bytes()).unwrap();
-        //self.kademlia.remove_providing(&hash);
     }
 }
 
@@ -202,5 +143,6 @@ pub(crate) type TBehaviour<TSwarmTypes> = Behaviour<SubstreamRef<Arc<StreamMuxer
 
 /// Create a IPFS behaviour with the IPFS bootstrap nodes.
 pub fn build_behaviour<TSwarmTypes: SwarmTypes>(options: SwarmOptions<TSwarmTypes>, repo: Repo<TSwarmTypes>) -> TBehaviour<TSwarmTypes> {
+    info!("Behaviour::new {}", options.peer_id);
     Behaviour::new(options, repo)
 }

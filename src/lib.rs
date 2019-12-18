@@ -165,7 +165,8 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
             .expect("Cant see how this should happen");
 
         self.repo.init().await?;
-        self.repo.init().await?;
+        //self.repo.init().await?;
+        println!("init done");
 
         let (sender, receiver) = channel::<IpfsEvent>(1);
         self.exit_events.push(sender);
@@ -274,13 +275,14 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
             // libp2p uses std::future ... I couldn't figure out way to wrap it as compat,
             // box it and fuse it to for it to be used with futures::select!
 
-            {
-                let pin = Pin::new(&mut self.exit_events);
+            // {
+            //     let pin = Pin::new(&mut self.exit_events);
 
-                if let Poll::Ready(Some(IpfsEvent::Exit)) = pin.poll_next(ctx) {
-                    return Poll::Ready(());
-                }
-            }
+            //     if let Poll::Ready(Some(IpfsEvent::Exit)) = pin.poll_next(ctx) {
+            //         debug!("get some from exit_events");
+            //         return Poll::Ready(());
+            //     }
+            // }
 
             {
 

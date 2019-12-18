@@ -5,6 +5,7 @@ use crate::repo::{Repo, RepoTypes};
 use libp2p::{Multiaddr, PeerId};
 use libp2p::Swarm;
 use libp2p::identity::Keypair;
+use libp2p::floodsub::TopicBuilder;
 use std::marker::PhantomData;
 
 mod behaviour;
@@ -16,6 +17,7 @@ pub trait SwarmTypes: RepoTypes + Sized {
     type TStrategy: Strategy<Self>;
 }
 
+#[derive(Clone)]
 pub struct SwarmOptions<TSwarmTypes: SwarmTypes> {
     _marker: PhantomData<TSwarmTypes>,
     pub key_pair: Keypair,
@@ -45,14 +47,19 @@ pub fn create_swarm<TSwarmTypes: SwarmTypes>(options: SwarmOptions<TSwarmTypes>,
     let transport = transport::build_transport(&options);
 
     // Create a Kademlia behaviour
-    let behaviour = behaviour::build_behaviour(options, repo);
+    let behaviour = behaviour::build_behaviour(options.clone(), repo);
 
     // Create a Swarm
     let mut swarm = libp2p::Swarm::new(transport, behaviour, peer_id);
 
     // Listen on all interfaces and whatever port the OS assigns
-    let addr = Swarm::listen_on(&mut swarm, "/ip4/127.0.0.1/tcp/0".parse().unwrap()).unwrap();
-    info!("Listening on {:?}", addr);
+    let addr = Swarm::listen_on(&mut swarm, "/ip4/0.0.0.0/tcp/0".parse().unwrap()).unwrap();
+    info!("ListenerId {:?}", addr);
+
+    // connect to bootstrap
+    // let _unused = options.bootstrap.iter().map(|node|
+    //     Swarm::dial_addr(&mut swarm, node.0.clone()).expect("should connect")
+    // ).collect::<()>();
 
     swarm
 }
