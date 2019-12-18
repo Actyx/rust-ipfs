@@ -7,15 +7,8 @@ use std::fs;
 use std::path::Path;
 
 const BOOTSTRAP_NODES: &[&'static str] = &[
-    "/ip4/104.131.131.82/tcp/4001/p2p/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ",
-    "/ip4/104.236.179.241/tcp/4001/p2p/QmSoLPppuBtQSGwKDZT2M73ULpjvfd3aZ6ha4oFGL1KrGM",
-    "/ip4/104.236.76.40/tcp/4001/p2p/QmSoLV4Bbm51jM9C4gDYZQ9Cy3U6aXMJDAbzgu2fzaDs64",
-    "/ip4/128.199.219.111/tcp/4001/p2p/QmSoLSafTMBsPKadTEgaXctDQVcqN88CNLHXMkTNwMKPnu",
-    "/ip4/178.62.158.247/tcp/4001/p2p/QmSoLer265NRgSp2LA3dPaeykiS1J6DifTC88f5uVQKNAd",
-    "/ip6/2400:6180:0:d0::151:6001/tcp/4001/p2p/QmSoLSafTMBsPKadTEgaXctDQVcqN88CNLHXMkTNwMKPnu",
-    "/ip6/2604:a880:1:20::203:d001/tcp/4001/p2p/QmSoLPppuBtQSGwKDZT2M73ULpjvfd3aZ6ha4oFGL1KrGM",
-    "/ip6/2604:a880:800:10::4a:5001/tcp/4001/p2p/QmSoLV4Bbm51jM9C4gDYZQ9Cy3U6aXMJDAbzgu2fzaDs64",
-    "/ip6/2a03:b0c0:0:1010::23:1001/tcp/4001/p2p/QmSoLer265NRgSp2LA3dPaeykiS1J6DifTC88f5uVQKNAd",
+    "/ip4/127.0.0.1/tcp/4001/p2p/QmdmGPUGZCenTL92UG2bQzKex1RiW9QX8ABMyfpyWvy3VX",
+    "/ip4/192.168.178.109/tcp/4001/p2p/QmUkfp1ZnL4w3Y5kMAwH2UpWKs3QeRZSbMy67tnnkTtSTG" // /ipfs/QmTohtER7xpv2EW8HRSXL78jdfx1eMPxuhAU3qtmPWQbfv",
 ];
 
 /// See test cases for examples how to write such file.
@@ -175,6 +168,7 @@ impl Default for ConfigFile {
         //
         // and on the other hand:
         // https://github.com/libp2p/rust-libp2p/blob/eb7b7bd919b93e6acf00847c19d1a76c09016120/core/src/peer_id.rs#L62-L74
+        debug!("load default config");
         let private_key: [u8; 32] = EntropyRng::new().gen();
 
         let bootstrap = BOOTSTRAP_NODES.iter().map(|node| {
