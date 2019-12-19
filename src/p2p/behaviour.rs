@@ -59,7 +59,7 @@ pub enum SwarmEvent {
     BanPeerId(PeerId),
     UnbanPeerId(PeerId),
     Subscribe (Topic),
-    Unsubscribe (TopicHash),
+    Unsubscribe (Topic),
     Publish {
         topic: TopicHash,
         data: Vec<u8>,
@@ -216,28 +216,28 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes> Behaviour<TSub
     /// Note that this only requires a `TopicHash` and not a full `Topic`.
     ///
     /// Returns true if we were subscribed to this topic.
-    pub fn unsubscribe(&mut self, topic: impl AsRef<TopicHash>) -> bool {
+    pub fn unsubscribe(&mut self, topic: Topic) -> bool {
         self.floodsub.unsubscribe(topic)
     }
 
     /// Publishes a message to the network, if we're subscribed to the topic only.
-    pub fn publish(&mut self, topic: impl Into<TopicHash>, data: impl Into<Vec<u8>>) {
+    pub fn publish(&mut self, topic: TopicHash, data: impl Into<Vec<u8>>) {
         self.floodsub.publish(topic, data)
     }
 
     /// Publishes a message to the network, even if we're not subscribed to the topic.
-    pub fn publish_any(&mut self, topic: impl Into<TopicHash>, data: impl Into<Vec<u8>>) {
+    pub fn publish_any(&mut self, topic: TopicHash, data: impl Into<Vec<u8>>) {
         self.floodsub.publish_any(topic, data)
     }
 
     /// Publishes a message with multiple topics to the network.
     /// > **Note**: Doesn't do anything if we're not subscribed to any of the topics.
-    pub fn publish_many(&mut self, topic: impl IntoIterator<Item = impl Into<TopicHash>>, data: impl Into<Vec<u8>>) {
+    pub fn publish_many(&mut self, topic: impl IntoIterator<Item = TopicHash>, data: impl Into<Vec<u8>>) {
         self.floodsub.publish_many(topic, data)
     }
 
     /// Publishes a message with multiple topics to the network, even if we're not subscribed to any of the topics.
-    pub fn publish_many_any(&mut self, topic: impl IntoIterator<Item = impl Into<TopicHash>>, data: impl Into<Vec<u8>>) {
+    pub fn publish_many_any(&mut self, topic: impl IntoIterator<Item = TopicHash>, data: impl Into<Vec<u8>>) {
         self.floodsub.publish_many_any(topic, data)
     }
 }
