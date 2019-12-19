@@ -8,13 +8,12 @@ use libp2p::core::muxing::{StreamMuxerBox, SubstreamRef};
 use libp2p::identify::{Identify, IdentifyEvent};
 use libp2p::mdns::{Mdns, MdnsEvent};
 use libp2p::ping::{Ping, PingEvent};
+use libp2p::{Multiaddr, PeerId};
 use libp2p::floodsub::{Floodsub, FloodsubEvent, TopicBuilder, TopicHash, Topic};
 //use parity_multihash::Multihash;
 use std::sync::Arc;
 use tokio::prelude::*;
 
-use tokio::timer::Interval;
-use std::time::{Duration, Instant};
 
 /// Behaviour type.
 #[derive(NetworkBehaviour)]
@@ -52,11 +51,46 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes>
 }
 
 
+#[derive(Clone, Debug)]
+pub enum SwarmEvent {
+    DialAddr(Multiaddr),
+    Dial(PeerId),
+    AddExternalAddress(Multiaddr),
+    BanPeerId(PeerId),
+    UnbanPeerId(PeerId),
+    Subscribe (Topic),
+    Unsubscribe (TopicHash),
+    Publish {
+        topic: TopicHash,
+        data: Vec<u8>,
+    },
+    PublishAny {
+        topic: TopicHash,
+        data: Vec<u8>,
+    },
+    PublishMany {
+        topic: Vec<TopicHash>,
+        data: Vec<u8>,
+    },
+    PublishManyAny {
+        topic: Vec<TopicHash>,
+        data: Vec<u8>,
+    },
+}
+
 impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes>
     NetworkBehaviourEventProcess<()> for
     Behaviour<TSubstream, TSwarmTypes>
 {
     fn inject_event(&mut self, event: ()) {
+    }
+}
+impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes>
+    NetworkBehaviourEventProcess<SwarmEvent> for
+    Behaviour<TSubstream, TSwarmTypes>
+{
+    fn inject_event(&mut self, event: SwarmEvent) {
+        println!("got SwarmEvent");
     }
 }
 
@@ -105,10 +139,10 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes>
             FloodsubEvent::Message(m) =>  {
                 info!("get message: {} {:?}", String::from_utf8(m.data).unwrap(), m.topics);
             },
-            FloodsubEvent::Subscribed{ peer_id, topic } => {
-                let topic_resp = TopicBuilder::new("hello").build();
-                let msg = format!("I'm also here\n++ from code to {} ++\n", topic.clone().into_string());
-                self.floodsub.publish(topic_resp, msg)
+            FloodsubEvent::Subscribed{ .. } => {
+                //let topic_resp = TopicBuilder::new("hello").build();
+                //let msg = format!("I'm also here\n++ from code to {} ++\n", topic.clone().into_string());
+                //self.floodsub.publish(topic_resp, msg)
             },
             FloodsubEvent::Unsubscribed{ .. } => {}
 
@@ -184,7 +218,7 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes> Behaviour<TSub
     ///
     /// Returns true if we were subscribed to this topic.
     pub fn unsubscribe(&mut self, topic: impl AsRef<TopicHash>) -> bool {
-        self.floodsub.subscribe(topic)
+        self.floodsub.unsubscribe(topic)
     }
 
     /// Publishes a message to the network, if we're subscribed to the topic only.
@@ -194,12 +228,10 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes> Behaviour<TSub
 
     /// Publishes a message to the network, even if we're not subscribed to the topic.
     pub fn publish_any(&mut self, topic: impl Into<TopicHash>, data: impl Into<Vec<u8>>) {
-        self.floodsub.pubpublish_anylish(topic, data)
+        self.floodsub.publish_any(topic, data)
     }
 
     /// Publishes a message with multiple topics to the network.
-    ///
-    ///
     /// > **Note**: Doesn't do anything if we're not subscribed to any of the topics.
     pub fn publish_many(&mut self, topic: impl IntoIterator<Item = impl Into<TopicHash>>, data: impl Into<Vec<u8>>) {
         self.floodsub.publish_many(topic, data)
@@ -210,3 +242,18 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes> Behaviour<TSub
         self.floodsub.publish_many_any(topic, data)
     }
 }
+
+// impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes> Behaviour<TSubstream, TSwarmTypes> { {
+//     pub fn dial(&mut self, peer_id: PeerId) {
+//         Swarm::dial(self, peer_id.clone()),
+//     }
+//     pub fn add_external_address(&mut self, multiaddr: Multiaddr) {
+//         Swarm::add_external_address(self, multiaddr),
+//     }
+//     pub fn ban_peer_id(&mut self, peer_id: PeerId) {
+//         Swarm::ban_peer_id(self, peer_id),
+//     }
+//     pub fn unban_peer_id(&mut self, peer_id: PeerId) {
+//         Swarm::unban_peer_id(self, peer_id),
+//     }
+// }

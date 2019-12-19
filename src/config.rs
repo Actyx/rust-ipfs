@@ -7,8 +7,8 @@ use std::fs;
 use std::path::Path;
 
 const BOOTSTRAP_NODES: &[&'static str] = &[
-    "/ip4/127.0.0.1/tcp/4001/p2p/QmdmGPUGZCenTL92UG2bQzKex1RiW9QX8ABMyfpyWvy3VX",
-    "/ip4/192.168.178.109/tcp/4001/p2p/QmUkfp1ZnL4w3Y5kMAwH2UpWKs3QeRZSbMy67tnnkTtSTG" // /ipfs/QmTohtER7xpv2EW8HRSXL78jdfx1eMPxuhAU3qtmPWQbfv",
+   "/ip4/127.0.0.1/tcp/4001/p2p/QmdmGPUGZCenTL92UG2bQzKex1RiW9QX8ABMyfpyWvy3VX",
+   "/ip4/192.168.178.109/tcp/4001/p2p/QmUkfp1ZnL4w3Y5kMAwH2UpWKs3QeRZSbMy67tnnkTtSTG" // /ipfs/QmTohtER7xpv2EW8HRSXL78jdfx1eMPxuhAU3qtmPWQbfv",
 ];
 
 /// See test cases for examples how to write such file.
