@@ -17,6 +17,7 @@ env_logger = "*"
 failure = "*"
 fnv = "*"
 futures = { version = "0.3", features = [ "compat", "io-compat", "async-await" ] }
+futures-util = "0.3.1"
 libp2p = { version = "0.13.1", git = "https://github.com/libp2p/rust-libp2p" }
 log = "*"
 multibase = "*"
@@ -32,6 +33,7 @@ tokio-fs = { version = "0.1" }
 tokio-stdin-stdout = "0.1"
 xdg = "*"
 async-trait = "*"
+crossbeam-channel = "0.4"
 
 rocksdb = { version = "*", optional = true }
 
