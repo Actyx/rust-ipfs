@@ -55,7 +55,7 @@ impl<TSubstream, TSwarmTypes: SwarmTypes> Bitswap<TSubstream, TSwarmTypes> {
     pub fn connect(&mut self, peer_id: PeerId) {
         debug!("bitswap: connect");
         if self.target_peers.insert(peer_id.clone()) {
-            debug!("  queuing dial_peer to {}", peer_id.to_base58());
+            info!("  queuing dial_peer to {}", peer_id.to_base58());
             self.events.push_back(NetworkBehaviourAction::DialPeer {
                 peer_id: peer_id.clone(),
             });

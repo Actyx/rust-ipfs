@@ -177,6 +177,7 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
             exit_events: receiver,
             swarm: swarm.compat(),
         };
+        
 
         let UninitializedIpfs { repo, dag, ipns, exit_events, .. } = self;
 
@@ -268,7 +269,7 @@ use std::task::{Poll, Context};
 
 impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
     type Output = ();
-
+    
     fn poll(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
         use futures::Stream;
         loop {
