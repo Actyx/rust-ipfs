@@ -82,15 +82,14 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes>
     NetworkBehaviourEventProcess<()> for
     Behaviour<TSubstream, TSwarmTypes>
 {
-    fn inject_event(&mut self, event: ()) {
+    fn inject_event(&mut self, _event: ()) {
     }
 }
 impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes>
     NetworkBehaviourEventProcess<SwarmEvent> for
     Behaviour<TSubstream, TSwarmTypes>
 {
-    fn inject_event(&mut self, event: SwarmEvent) {
-        println!("got SwarmEvent");
+    fn inject_event(&mut self, _event: SwarmEvent) {
     }
 }
 
