@@ -169,8 +169,6 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
             .expect("Cant see how this should happen");
 
         self.repo.init().await?;
-        //self.repo.init().await?;
-        println!("init done");
 
         let (sender, receiver) = channel::<IpfsEvent>(1);
         self.exit_events.push(sender);
@@ -295,7 +293,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     /// Unsubscribes from a topic.
     ///
     /// Note that this only requires a `TopicHash` and not a full `Topic`.
-    pub fn unsubscribe(&self, topic: TopicHash) -> Result<(), TrySendError<SwarmEvent>> {
+    pub fn unsubscribe(&self, topic: Topic) -> Result<(), TrySendError<SwarmEvent>> {
         self.swarm_events.try_send(SwarmEvent::Unsubscribe(topic))
     }
 
@@ -370,10 +368,8 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
             // }
             loop {
                 match self.swarm_events.try_recv() {
-                    Ok(SwarmEvent::DialAddr(multiaddr)) => {
-                        println!("DialAddr {:?}", multiaddr);
-                        Swarm::dial_addr(&mut self.swarm.get_mut(), multiaddr.clone()).expect("should work :-)")
-                    },
+                    Ok(SwarmEvent::DialAddr(multiaddr)) => 
+                        Swarm::dial_addr(&mut self.swarm.get_mut(), multiaddr.clone()).expect("should work :-)"),
                     Ok(SwarmEvent::Dial(peer_id)) => 
                         Swarm::dial(&mut self.swarm.get_mut(), peer_id.clone()),
                     Ok(SwarmEvent::AddExternalAddress(multiaddr)) => 
@@ -386,10 +382,10 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
                         self.swarm.get_mut().subscribe(t);
                         ()
                     }, 
-                    // Ok(SwarmEvent::Unsubscribe(t)) => {
-                    //     self.swarm.get_mut().unsubscribe(t);
-                    //     ()
-                    // }, 
+                    Ok(SwarmEvent::Unsubscribe(t)) => {
+                        self.swarm.get_mut().unsubscribe(t);
+                        ()
+                    }, 
                     Ok(SwarmEvent::Publish{topic, data}) => 
                         self.swarm.get_mut().publish(topic, data), 
                     Ok(SwarmEvent::PublishAny{topic, data}) => 
