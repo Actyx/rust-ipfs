@@ -6,7 +6,6 @@ use libp2p::{Multiaddr, PeerId};
 use libp2p::Swarm;
 use libp2p::identity::Keypair;
 use std::marker::PhantomData;
-use libp2p::floodsub::{Topic, TopicHash};
 use crossbeam_channel::{bounded, Receiver, Sender};
 
 mod behaviour;
