@@ -29,6 +29,7 @@ serde_derive = "1.0"
 serde_json = "1.0"
 tokio = { version = "0.1.21" }
 tokio-fs = { version = "0.1" }
+tokio-stdin-stdout = "0.1"
 xdg = "*"
 async-trait = "*"
 

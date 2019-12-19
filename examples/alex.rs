@@ -23,6 +23,8 @@ fn main() {
         ipfs.put_dag(root).await.unwrap();
         let path = IpfsPath::from_str("/ipfs/zdpuB1caPcm4QNXeegatVfLQ839Lmprd5zosXGwRUBJHwj66X").unwrap();
         let _f2 = ipfs.get_dag(path.sub_path("1").unwrap());
+
+
       }
       .unit_error()
       .boxed()

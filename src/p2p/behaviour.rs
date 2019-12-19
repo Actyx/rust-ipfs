@@ -8,10 +8,13 @@ use libp2p::core::muxing::{StreamMuxerBox, SubstreamRef};
 use libp2p::identify::{Identify, IdentifyEvent};
 use libp2p::mdns::{Mdns, MdnsEvent};
 use libp2p::ping::{Ping, PingEvent};
-use libp2p::floodsub::{Floodsub, FloodsubEvent};
+use libp2p::floodsub::{Floodsub, FloodsubEvent, TopicBuilder, TopicHash, Topic};
 //use parity_multihash::Multihash;
 use std::sync::Arc;
 use tokio::prelude::*;
+
+use tokio::timer::Interval;
+use std::time::{Duration, Instant};
 
 /// Behaviour type.
 #[derive(NetworkBehaviour)]
@@ -31,7 +34,7 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes>
         match event {
             MdnsEvent::Discovered(list) => {
                 for (peer, _) in list {
-                    info!("mdns: Discovered peer {}", peer.to_base58());
+                    debug!("mdns: Discovered peer {}", peer.to_base58());
                     self.bitswap.connect(peer.clone());
                     self.floodsub.add_node_to_partial_view(peer);
                 }
@@ -53,8 +56,7 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes>
     NetworkBehaviourEventProcess<()> for
     Behaviour<TSubstream, TSwarmTypes>
 {
-    fn inject_event(&mut self, _event: ()) {
-
+    fn inject_event(&mut self, event: ()) {
     }
 }
 
@@ -86,7 +88,11 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes>
     Behaviour<TSubstream, TSwarmTypes>
 {
     fn inject_event(&mut self, event: IdentifyEvent) {
-        info!("identify: {:?}", event);
+        match event {
+            IdentifyEvent::Received{ peer_id, .. } => info!("Received: {}", peer_id),
+            IdentifyEvent::Error{ peer_id, .. } => info!("error: {}", peer_id),
+            _ => ()
+        }
     }
 }
 
@@ -95,7 +101,18 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes>
     Behaviour<TSubstream, TSwarmTypes>
 {
     fn inject_event(&mut self, event: FloodsubEvent) {
-        info!("floodsub: {:?}", event);
+        match event {
+            FloodsubEvent::Message(m) =>  {
+                info!("get message: {} {:?}", String::from_utf8(m.data).unwrap(), m.topics);
+            },
+            FloodsubEvent::Subscribed{ peer_id, topic } => {
+                let topic_resp = TopicBuilder::new("hello").build();
+                let msg = format!("I'm also here\n++ from code to {} ++\n", topic.clone().into_string());
+                self.floodsub.publish(topic_resp, msg)
+            },
+            FloodsubEvent::Unsubscribed{ .. } => {}
+
+        }
     }
 }
 
@@ -113,8 +130,13 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes> Behaviour<TSub
             "rust-ipfs".into(),
             options.key_pair.public(),
         );
-        let floodsub = Floodsub::new(options.peer_id.to_owned());
+        let mut floodsub = Floodsub::new(options.peer_id.to_owned());
 
+        let topic = TopicBuilder::new("hello").build();
+        let res = floodsub.subscribe(topic.clone());
+
+        info!("can subscribe {}", res);
+        
         Behaviour {
             mdns,
             bitswap,
@@ -145,4 +167,46 @@ pub(crate) type TBehaviour<TSwarmTypes> = Behaviour<SubstreamRef<Arc<StreamMuxer
 pub fn build_behaviour<TSwarmTypes: SwarmTypes>(options: SwarmOptions<TSwarmTypes>, repo: Repo<TSwarmTypes>) -> TBehaviour<TSwarmTypes> {
     info!("Behaviour::new {}", options.peer_id);
     Behaviour::new(options, repo)
+}
+
+
+impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes> Behaviour<TSubstream, TSwarmTypes> {
+    /// Subscribes to a topic.
+    ///
+    /// Returns true if the subscription worked. Returns false if we were already subscribed.
+    pub fn subscribe(&mut self, topic: Topic) -> bool {
+        self.floodsub.subscribe(topic)
+    }
+
+    /// Unsubscribes from a topic.
+    ///
+    /// Note that this only requires a `TopicHash` and not a full `Topic`.
+    ///
+    /// Returns true if we were subscribed to this topic.
+    pub fn unsubscribe(&mut self, topic: impl AsRef<TopicHash>) -> bool {
+        self.floodsub.subscribe(topic)
+    }
+
+    /// Publishes a message to the network, if we're subscribed to the topic only.
+    pub fn publish(&mut self, topic: impl Into<TopicHash>, data: impl Into<Vec<u8>>) {
+        self.floodsub.publish(topic, data)
+    }
+
+    /// Publishes a message to the network, even if we're not subscribed to the topic.
+    pub fn publish_any(&mut self, topic: impl Into<TopicHash>, data: impl Into<Vec<u8>>) {
+        self.floodsub.pubpublish_anylish(topic, data)
+    }
+
+    /// Publishes a message with multiple topics to the network.
+    ///
+    ///
+    /// > **Note**: Doesn't do anything if we're not subscribed to any of the topics.
+    pub fn publish_many(&mut self, topic: impl IntoIterator<Item = impl Into<TopicHash>>, data: impl Into<Vec<u8>>) {
+        self.floodsub.publish_many(topic, data)
+    }
+
+    /// Publishes a message with multiple topics to the network, even if we're not subscribed to any of the topics.
+    pub fn publish_many_any(&mut self, topic: impl IntoIterator<Item = impl Into<TopicHash>>, data: impl Into<Vec<u8>>) {
+        self.floodsub.publish_many_any(topic, data)
+    }
 }
