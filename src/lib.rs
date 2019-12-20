@@ -8,6 +8,7 @@ use std::marker::PhantomData;
 use std::path::PathBuf;
 use futures::channel::mpsc::{channel, Sender, Receiver};
 use std::future::Future;
+use futures_util::future::FutureExt;
 use libp2p::Swarm;
 
 pub mod bitswap;
@@ -26,9 +27,8 @@ use self::config::ConfigFile;
 pub use self::error::Error;
 use self::ipld::IpldDag;
 pub use self::ipld::Ipld;
-use self::ipns::Ipns;
-pub use self::p2p::SwarmTypes;
-use self::p2p::{create_swarm, SwarmOptions, TSwarm, IpfsSwarm, SwarmEvent};
+pub use self::p2p::{SwarmTypes, PubSubOut};
+use self::p2p::{create_swarm, SwarmOptions, TSwarm, SwarmEvent};
 pub use self::path::IpfsPath;
 pub use self::repo::RepoTypes;
 use self::repo::{create_repo, RepoOptions, Repo, RepoEvent};
@@ -121,12 +121,13 @@ impl Default for IpfsOptions<TestTypes> {
 
 /// Ipfs struct creates a new IPFS node and is the main entry point
 /// for interacting with IPFS.
+#[derive(Clone)]
 pub struct Ipfs<Types: IpfsTypes> {
     repo: Repo<Types>,
     dag: IpldDag<Types>,
-    ipns: Ipns<Types>,
     exit_events: Vec<Sender<IpfsEvent>>,
-    swarm_events: crossbeam_channel::Sender<SwarmEvent>,
+    swarm_events: async_std::sync::Sender<SwarmEvent>,
+    pub pubsub_receiver: async_std::sync::Receiver<PubSubOut>,
 }
 
 enum IpfsEvent {
@@ -137,8 +138,7 @@ enum IpfsEvent {
 pub struct UninitializedIpfs<Types: IpfsTypes> {
     repo: Repo<Types>,
     dag: IpldDag<Types>,
-    ipns: Ipns<Types>,
-    moved_on_init: Option<(Receiver<RepoEvent>, IpfsSwarm<Types>)>,
+    moved_on_init: Option<(Receiver<RepoEvent>, TSwarm<Types>)>,
     exit_events: Vec<Sender<IpfsEvent>>,
 }
 
@@ -149,12 +149,10 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
         let swarm_options = SwarmOptions::<Types>::from(&options);
         let swarm = create_swarm(swarm_options, repo.clone());
         let dag = IpldDag::new(repo.clone());
-        let ipns = Ipns::new(repo.clone());
 
         UninitializedIpfs {
             repo,
             dag,
-            ipns,
             moved_on_init: Some((repo_events, swarm)),
             exit_events: Vec::default(),
         }
@@ -164,7 +162,7 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
     pub async fn start(mut self) -> Result<(Ipfs<Types>, impl std::future::Future<Output = ()>), Error> {
         use futures::compat::Stream01CompatExt;
 
-        let (repo_events, ipfs_swarm) = self.moved_on_init
+        let (repo_events, swarm) = self.moved_on_init
             .take()
             .expect("Cant see how this should happen");
 
@@ -173,22 +171,27 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
         let (sender, receiver) = channel::<IpfsEvent>(1);
         self.exit_events.push(sender);
 
+        let (swarm_sender, swarm_receiver) = async_std::sync::channel::<SwarmEvent>(1000);
+        let (pubsub_sender, pubsub_receiver) = async_std::sync::channel::<PubSubOut>(1000);
+
+
         let fut = IpfsFuture {
+            swarm: swarm.compat(),
             repo_events,
             exit_events: receiver,
-            swarm: ipfs_swarm.swarm.compat(),
-            swarm_events: ipfs_swarm.swarm_events,
+            swarm_events: swarm_receiver,
+            pubsub_sender
         };
         
 
-        let UninitializedIpfs { repo, dag, ipns, exit_events, .. } = self;
+        let UninitializedIpfs { repo, dag, exit_events, .. } = self;
 
         Ok((Ipfs {
             repo,
             dag,
-            ipns,
             exit_events,
-            swarm_events: ipfs_swarm.swarm_emit,
+            swarm_events: swarm_sender,
+            pubsub_receiver,
         }, fut))
     }
 }
@@ -237,22 +240,6 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         Ok(File::get_unixfs_v1(&self.dag, path).await?)
     }
 
-    /// Resolves a ipns path to an ipld path.
-    pub async fn resolve_ipns(&self, path: &IpfsPath) -> Result<IpfsPath, Error> {
-        Ok(self.ipns.resolve(path).await?)
-    }
-
-    /// Publishes an ipld path.
-    pub async fn publish_ipns(&self, key: &PeerId, path: &IpfsPath) -> Result<IpfsPath, Error> {
-        Ok(self.ipns.publish(key, path).await?)
-    }
-
-    /// Cancel an ipns path.
-    pub async fn cancel_ipns(&self, key: &PeerId) -> Result<(), Error> {
-        self.ipns.cancel(key).await?;
-        Ok(())
-    }
-
     /// Exit daemon.
     pub fn exit_daemon(mut self) {
         for mut s in self.exit_events.drain(..) {
@@ -261,61 +248,59 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     }
 }
 
-use crossbeam_channel::{TryRecvError, TrySendError};
-
 impl<Types: IpfsTypes> Ipfs<Types> {
 
-    pub fn dial_addr(&self, multiaddr: Multiaddr) -> Result<(), TrySendError<SwarmEvent>> {
-        self.swarm_events.try_send(SwarmEvent::DialAddr(multiaddr))
+    pub async fn dial_addr(&self, multiaddr: Multiaddr) {
+        self.swarm_events.send(SwarmEvent::DialAddr(multiaddr)).await;
     }
 
-    pub fn dial(&self, peer_id: PeerId) -> Result<(), TrySendError<SwarmEvent>> {
-        self.swarm_events.try_send(SwarmEvent::Dial(peer_id))
+    pub async fn dial(&self, peer_id: PeerId) {
+        self.swarm_events.send(SwarmEvent::Dial(peer_id)).await
     }
 
-    pub fn add_external_address(&self, multiaddr: Multiaddr) -> Result<(), TrySendError<SwarmEvent>> {
-        self.swarm_events.try_send(SwarmEvent::AddExternalAddress(multiaddr))
+    pub async fn add_external_address(&self, multiaddr: Multiaddr) {
+        self.swarm_events.send(SwarmEvent::AddExternalAddress(multiaddr)).await
     }
 
-    pub fn ban_peer_id(&self, peer_id: PeerId) -> Result<(), TrySendError<SwarmEvent>> {
-        self.swarm_events.try_send(SwarmEvent::BanPeerId(peer_id))
+    pub async fn ban_peer_id(&self, peer_id: PeerId) {
+        self.swarm_events.send(SwarmEvent::BanPeerId(peer_id)).await
     }
 
-    pub fn unban_peer_id(&self, peer_id: PeerId) -> Result<(), TrySendError<SwarmEvent>> {
-        self.swarm_events.try_send(SwarmEvent::UnbanPeerId(peer_id))
+    pub async fn unban_peer_id(&self, peer_id: PeerId) {
+        self.swarm_events.send(SwarmEvent::UnbanPeerId(peer_id)).await
     }
 
     /// Subscribes to a topic.
-    pub fn subscribe(&self, topic: Topic) -> Result<(), TrySendError<SwarmEvent>> {
-        self.swarm_events.try_send(SwarmEvent::Subscribe(topic))
+    pub async fn subscribe(&self, topic: Topic) {
+        self.swarm_events.send(SwarmEvent::Subscribe(topic)).await
     }
 
     /// Unsubscribes from a topic.
     ///
     /// Note that this only requires a `TopicHash` and not a full `Topic`.
-    pub fn unsubscribe(&self, topic: Topic) -> Result<(), TrySendError<SwarmEvent>> {
-        self.swarm_events.try_send(SwarmEvent::Unsubscribe(topic))
+    pub async fn unsubscribe(&self, topic: Topic) {
+        self.swarm_events.send(SwarmEvent::Unsubscribe(topic)).await
     }
 
     /// Publishes a message to the network, if we're subscribed to the topic only.
-    pub fn publish(&self, topic: TopicHash, data: Vec<u8>) -> Result<(), TrySendError<SwarmEvent>> {
-        self.swarm_events.try_send(SwarmEvent::Publish{topic, data})
+    pub async fn publish(&self, topic: TopicHash, data: Vec<u8>) {
+        self.swarm_events.send(SwarmEvent::Publish{topic, data}).await
     }
 
     /// Publishes a message to the network, even if we're not subscribed to the topic.
-    pub fn publish_any(&self, topic: TopicHash, data: Vec<u8>) -> Result<(), TrySendError<SwarmEvent>> {
-        self.swarm_events.try_send(SwarmEvent::PublishAny{topic, data})
+    pub async fn publish_any(&self, topic: TopicHash, data: Vec<u8>) {
+        self.swarm_events.send(SwarmEvent::PublishAny{topic, data}).await
     }
 
     /// Publishes a message with multiple topics to the network.
     /// > **Note**: Doesn't do anything if we're not subscribed to any of the topics.
-    pub fn publish_many(&self, topic: Vec<TopicHash>, data: Vec<u8>) -> Result<(), TrySendError<SwarmEvent>> {
-        self.swarm_events.try_send(SwarmEvent::PublishMany{topic, data})
+    pub async fn publish_many(&self, topic: Vec<TopicHash>, data: Vec<u8>) {
+        self.swarm_events.send(SwarmEvent::PublishMany{topic, data}).await
     }
 
     /// Publishes a message with multiple topics to the network, even if we're not subscribed to any of the topics.
-    pub fn publish_many_any(&self, topic: Vec<libp2p::floodsub::TopicHash>, data: Vec<u8>) -> Result<(), TrySendError<p2p::SwarmEvent>> {
-        self.swarm_events.try_send(SwarmEvent::PublishManyAny{topic, data})
+    pub async fn publish_many_any(&self, topic: Vec<libp2p::floodsub::TopicHash>, data: Vec<u8>) {
+        self.swarm_events.send(SwarmEvent::PublishManyAny{topic, data}).await
     }
 }
 
@@ -323,7 +308,8 @@ pub struct IpfsFuture<Types: SwarmTypes> {
     swarm: futures::compat::Compat01As03<TSwarm<Types>>,
     repo_events: Receiver<RepoEvent>,
     exit_events: Receiver<IpfsEvent>,
-    swarm_events: crossbeam_channel::Receiver<SwarmEvent>,
+    swarm_events: async_std::sync::Receiver<SwarmEvent>,
+    pubsub_sender: async_std::sync::Sender<PubSubOut>,
 }
 
 use std::pin::Pin;
@@ -347,55 +333,36 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
             //         return Poll::Ready(());
             //     }
             // }
-            // {
-            //     loop {
-            //         let pin = Pin::new(&mut self.swarm_events);
-            //         match pin.poll_next(ctx) {
-            //             Poll::Ready(Some(SwarmEvent::DialAddr(addr))) =>
-            //                 self.swarm.get_mut().dail_addr(addr),
-            //             Poll::Ready(Some(SwarmEvent::Dial(peer_id))) =>
-            //                 self.swarm.get_mut().dail(peer_id),
-            //             Poll::Ready(Some(SwarmEvent::AddExternalAddress(add))) =>
-            //                 self.swarm.get_mut().add_external_address(add),
-            //             Poll::Ready(Some(SwarmEvent::BanPeerId(peer_id))) =>
-            //                 self.swarm.get_mut().bann_peer_id(peer_id),
-            //             Poll::Ready(Some(SwarmEvent::UnbanPeerId(peer_id))) =>
-            //                 self.swarm.get_mut().unban_peer_id(peer_id),
-            //             Poll::Ready(None) => panic!("other side closed the swarm_events?"),
-            //             Poll::Pending => break,
-            //         }
-            //     }
-            // }
             loop {
-                match self.swarm_events.try_recv() {
-                    Ok(SwarmEvent::DialAddr(multiaddr)) => 
+                let pin = Pin::new(&mut self.swarm_events);
+                match pin.poll_next(ctx) {
+                    Poll::Ready(Some(SwarmEvent::DialAddr(multiaddr))) => 
                         Swarm::dial_addr(&mut self.swarm.get_mut(), multiaddr.clone()).expect("should work :-)"),
-                    Ok(SwarmEvent::Dial(peer_id)) => 
+                    Poll::Ready(Some(SwarmEvent::Dial(peer_id))) => 
                         Swarm::dial(&mut self.swarm.get_mut(), peer_id.clone()),
-                    Ok(SwarmEvent::AddExternalAddress(multiaddr)) => 
+                    Poll::Ready(Some(SwarmEvent::AddExternalAddress(multiaddr))) => 
                         Swarm::add_external_address(self.swarm.get_mut(), multiaddr),
-                    Ok(SwarmEvent::BanPeerId(peer_id)) => 
+                    Poll::Ready(Some(SwarmEvent::BanPeerId(peer_id))) => 
                         Swarm::ban_peer_id(self.swarm.get_mut(), peer_id),
-                    Ok(SwarmEvent::UnbanPeerId(peer_id)) => 
+                    Poll::Ready(Some(SwarmEvent::UnbanPeerId(peer_id))) => 
                         Swarm::unban_peer_id(self.swarm.get_mut(), peer_id),
-                    Ok(SwarmEvent::Subscribe(t)) => {
-                        self.swarm.get_mut().subscribe(t);
-                        ()
+                        
+                    Poll::Ready(Some(SwarmEvent::Subscribe(t))) => {
+                        self.swarm.get_mut().floodsub.subscribe(t);
                     }, 
-                    Ok(SwarmEvent::Unsubscribe(t)) => {
-                        self.swarm.get_mut().unsubscribe(t);
-                        ()
+                    Poll::Ready(Some(SwarmEvent::Unsubscribe(t))) => {
+                        self.swarm.get_mut().floodsub.unsubscribe(t);
                     }, 
-                    Ok(SwarmEvent::Publish{topic, data}) => 
-                        self.swarm.get_mut().publish(topic, data), 
-                    Ok(SwarmEvent::PublishAny{topic, data}) => 
-                        self.swarm.get_mut().publish_any(topic, data), 
-                    Ok(SwarmEvent::PublishMany{topic, data}) => 
-                        self.swarm.get_mut().publish_many(topic, data), 
-                    Ok(SwarmEvent::PublishManyAny{topic, data}) => 
-                        self.swarm.get_mut().publish_many_any(topic, data),                      
-                    Err(TryRecvError::Empty) => break,
-                    _ => (),
+                    Poll::Ready(Some(SwarmEvent::Publish{topic, data})) => 
+                        self.swarm.get_mut().floodsub.publish(topic, data), 
+                    Poll::Ready(Some(SwarmEvent::PublishAny{topic, data})) => 
+                        self.swarm.get_mut().floodsub.publish_any(topic, data), 
+                    Poll::Ready(Some(SwarmEvent::PublishMany{topic, data})) => 
+                        self.swarm.get_mut().floodsub.publish_many(topic, data), 
+                    Poll::Ready(Some(SwarmEvent::PublishManyAny{topic, data})) => 
+                        self.swarm.get_mut().floodsub.publish_many_any(topic, data),  
+                    Poll::Ready(None) => panic!("swarm_events should never be closed?"),
+                    Poll::Pending => break,
                 }
             }
 
@@ -418,6 +385,10 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
             {
                 let poll = Pin::new(&mut self.swarm).poll_next(ctx);
                 match poll {
+                    Poll::Ready(Some(Ok(msg @ PubSubOut::FloodsubMessage{ .. }))) => {
+                        self.pubsub_sender.send(msg).boxed().as_mut().poll(ctx);
+                        ()
+                    },
                     Poll::Ready(Some(_)) => {},
                     Poll::Ready(None) => { return Poll::Ready(()); },
                     Poll::Pending => { return Poll::Pending; }
