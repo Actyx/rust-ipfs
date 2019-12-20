@@ -209,8 +209,8 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     }
 
     /// Retrives a block from the ipfs repo.
-    pub async fn get_block(mut self, cid: &Cid) -> Result<Block, Error> {
-        Ok(self.repo.get_block(cid).await?)
+    pub async fn get_block(mut self, cid: Cid) -> Result<Block, Error> {
+        Ok(self.repo.get_block(&cid).await?)
     }
 
     /// Remove block from the ipfs repo.
