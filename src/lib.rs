@@ -271,35 +271,35 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     }
 
     /// Subscribes to a topic.
-    pub async fn subscribe(&self, topic: Topic) {
+    pub async fn subscribe(self, topic: Topic) {
         self.swarm_events.send(SwarmEvent::Subscribe(topic)).await
     }
 
     /// Unsubscribes from a topic.
     ///
     /// Note that this only requires a `TopicHash` and not a full `Topic`.
-    pub async fn unsubscribe(&self, topic: Topic) {
+    pub async fn unsubscribe(self, topic: Topic) {
         self.swarm_events.send(SwarmEvent::Unsubscribe(topic)).await
     }
 
     /// Publishes a message to the network, if we're subscribed to the topic only.
-    pub async fn publish(&self, topic: TopicHash, data: Vec<u8>) {
+    pub async fn publish(self, topic: TopicHash, data: Vec<u8>) {
         self.swarm_events.send(SwarmEvent::Publish{topic, data}).await
     }
 
     /// Publishes a message to the network, even if we're not subscribed to the topic.
-    pub async fn publish_any(&self, topic: TopicHash, data: Vec<u8>) {
+    pub async fn publish_any(self, topic: TopicHash, data: Vec<u8>) {
         self.swarm_events.send(SwarmEvent::PublishAny{topic, data}).await
     }
 
     /// Publishes a message with multiple topics to the network.
     /// > **Note**: Doesn't do anything if we're not subscribed to any of the topics.
-    pub async fn publish_many(&self, topic: Vec<TopicHash>, data: Vec<u8>) {
+    pub async fn publish_many(self, topic: Vec<TopicHash>, data: Vec<u8>) {
         self.swarm_events.send(SwarmEvent::PublishMany{topic, data}).await
     }
 
     /// Publishes a message with multiple topics to the network, even if we're not subscribed to any of the topics.
-    pub async fn publish_many_any(&self, topic: Vec<libp2p::floodsub::TopicHash>, data: Vec<u8>) {
+    pub async fn publish_many_any(self, topic: Vec<libp2p::floodsub::TopicHash>, data: Vec<u8>) {
         self.swarm_events.send(SwarmEvent::PublishManyAny{topic, data}).await
     }
 }
