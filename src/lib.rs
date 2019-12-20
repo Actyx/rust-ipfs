@@ -204,12 +204,12 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     }
 
     /// Puts a block into the ipfs repo.
-    pub async fn put_block(&mut self, block: Block) -> Result<Cid, Error> {
+    pub async fn put_block(mut self, block: Block) -> Result<Cid, Error> {
         Ok(self.repo.put_block(block).await?)
     }
 
     /// Retrives a block from the ipfs repo.
-    pub async fn get_block(&mut self, cid: &Cid) -> Result<Block, Error> {
+    pub async fn get_block(mut self, cid: &Cid) -> Result<Block, Error> {
         Ok(self.repo.get_block(cid).await?)
     }
 
