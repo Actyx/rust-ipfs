@@ -151,7 +151,7 @@ Behaviour<TSubstream, TSwarmTypes>
     fn inject_event(&mut self, event: FloodsubEvent) {
         match event {
             FloodsubEvent::Message(m) =>  {
-                info!("get message: {} {:?} from {}", String::from_utf8(m.data.clone()).unwrap(), m.topics, m.source);
+                debug!("get message: {} {:?} from {}", String::from_utf8(m.data.clone()).unwrap(), m.topics, m.source);
                 self.events.push(BehaviourOut::FloodsubMessage{
                     topics: m.topics,
                     data: m.data,
