@@ -386,8 +386,7 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
                 let poll = Pin::new(&mut self.swarm).poll_next(ctx);
                 match poll {
                     Poll::Ready(Some(Ok(msg @ PubSubOut::FloodsubMessage{ .. }))) => {
-                        self.pubsub_sender.send(msg).boxed().as_mut().poll(ctx);
-                        ()
+                        let _unused = self.pubsub_sender.send(msg).boxed().as_mut().poll(ctx);
                     },
                     Poll::Ready(Some(_)) => {},
                     Poll::Ready(None) => { return Poll::Ready(()); },
