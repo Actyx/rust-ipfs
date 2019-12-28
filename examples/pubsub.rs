@@ -5,9 +5,22 @@ use async_std::{io, task};
 use futures::{future, prelude::*};
 use futures::task::{Poll, Context};
 
+use ipfs::block::{Block, Cid};
+
 fn main() {
   let options = IpfsOptions::<TestTypes>::default();
   env_logger::Builder::new().parse_filters(&options.ipfs_log).init();
+
+
+  let prefix = cid::Prefix {
+    version: cid::Version::V1,
+    codec: cid::Codec::DagCBOR,
+    mh_type: multihash::Hash::SHA2256,
+    mh_len: 32,
+  };
+  let data = b"test1234";
+  let cid = cid::Cid::new_from_prefix(&prefix, data);
+  let block = Block::new(data.to_vec(), cid);
 
   task::block_on(async move {
     let (ipfs, fut) = Ipfs::new(options).await.start().await.unwrap();
@@ -15,6 +28,9 @@ fn main() {
 
     let mut stdin = io::BufReader::new(io::stdin()).lines();
     let topic = TopicBuilder::new("hello").build();
+
+    let cid = ipfs.clone().put_block(block).await;
+    println!("{}", cid.unwrap());
 
     ipfs.clone().subscribe(topic.clone()).await;
     let r1 = ipfs.pubsub_receiver.clone();

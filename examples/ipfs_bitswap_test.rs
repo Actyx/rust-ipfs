@@ -8,14 +8,14 @@ fn main() {
 
     tokio::runtime::current_thread::block_on_all(async move {
         // Start daemon and initialize repo
-        let (mut ipfs, fut) = Ipfs::new(options).start().await.unwrap();
+        let (mut ipfs, fut) = Ipfs::new(options).await.start().await.unwrap();
         tokio::spawn(fut.unit_error().boxed().compat());
 
         // Create a Block
         ipfs.put_block(Block::from("block-provide")).await.unwrap();
 
         // Retrive a Block
-        let block = ipfs.get_block(Block::from("block-want\n").cid()).await.unwrap();
+        let block = ipfs.get_block(Block::from("block-want\n").cid().clone()).await.unwrap();
         let contents: String = block.into();
         println!("block contents: {:?}", contents);
 

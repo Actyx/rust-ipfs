@@ -37,7 +37,7 @@ impl<TSocket> InboundUpgrade<TSocket> for BitswapConfig
 {
     type Output = Message<I>;
     type Error = Error;
-    type Future = Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>>>>;
+    type Future = Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>> + Send>>;
 
     #[inline]
     fn upgrade_inbound(self, mut socket: Negotiated<TSocket>, info: Self::Info) -> Self::Future {

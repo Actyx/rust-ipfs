@@ -18,7 +18,6 @@ use libp2p::swarm::protocols_handler::{OneShotHandler, ProtocolsHandler, IntoPro
 use libp2p::{Multiaddr, PeerId};
 use std::collections::{HashMap, VecDeque};
 use std::marker::PhantomData;
-use tokio::prelude::*;
 use futures::task::Poll;
 use futures::io::{AsyncRead, AsyncWrite};
 
@@ -207,7 +206,7 @@ impl<TSubstream, TSwarmTypes> NetworkBehaviour for Bitswap<TSubstream, TSwarmTyp
         // TODO: Remove cancelled blocks from `SendEvent`.
         debug!("");
     }
-    fn poll(&mut self, _: &mut Context, _: &mut impl PollParameters)
+    fn poll(&mut self, ctx: &mut Context, _: &mut impl PollParameters)
         -> Poll<NetworkBehaviourAction<<<Self::ProtocolsHandler as IntoProtocolsHandler>::Handler as ProtocolsHandler>::InEvent, Self::OutEvent>>
         // -> Async<NetworkBehaviourAction<<Self::ProtocolsHandler as ProtocolsHandler>::InEvent, Self::OutEvent>>
     {
@@ -239,7 +238,7 @@ impl<TSubstream, TSwarmTypes> NetworkBehaviour for Bitswap<TSubstream, TSwarmTyp
         match self.strategy.poll() {
             Some(StrategyEvent::Send { peer_id, block }) => {
                 self.send_block(peer_id, block);
-                task::current().notify();
+                ctx.waker().wake_by_ref();
             }
             None => {}
         }

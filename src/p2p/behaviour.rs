@@ -21,7 +21,7 @@ use futures::task::{Poll, Context};
 // #[behaviour(poll_method = "poll")]
 pub struct Behaviour<TSubstream, TSwarmTypes: SwarmTypes> {
     pub mdns: Mdns<TSubstream>,
-    // pub bitswap: Bitswap<TSubstream, TSwarmTypes>,
+    pub bitswap: Bitswap<TSubstream, TSwarmTypes>,
     pub ping: Ping<TSubstream>,
     pub identify: Identify<TSubstream>,
     pub floodsub: Floodsub<TSubstream>,
@@ -29,9 +29,6 @@ pub struct Behaviour<TSubstream, TSwarmTypes: SwarmTypes> {
     /// Queue of events to produce for the outside.
     #[behaviour(ignore)]
     events: Vec<BehaviourOut>,
-
-    #[behaviour(ignore)]
-    _dummy: std::marker::PhantomData<TSwarmTypes>,
 }
 
 impl<TSubstream, TSwarmTypes: SwarmTypes>
@@ -175,7 +172,7 @@ impl<TSubstream, TSwarmTypes: SwarmTypes> Behaviour<TSubstream, TSwarmTypes>
 
         let mdns = Mdns::new().await.expect("Failed to create mDNS service");
         let strategy = TSwarmTypes::TStrategy::new(repo);
-        // let bitswap = Bitswap::new(strategy);
+        let bitswap = Bitswap::new(strategy);
         let ping = Ping::default();
         let identify = Identify::new(
             "/ipfs/0.1.0".into(),
@@ -186,12 +183,11 @@ impl<TSubstream, TSwarmTypes: SwarmTypes> Behaviour<TSubstream, TSwarmTypes>
 
         Behaviour {
             mdns,
-            // bitswap,
+            bitswap,
             ping,
             identify,
             floodsub,
             events: Vec::new(),
-            _dummy: std::marker::PhantomData,
         }
     }
 
