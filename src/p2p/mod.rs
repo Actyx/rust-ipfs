@@ -61,7 +61,5 @@ pub async fn create_swarm<TSwarmTypes: SwarmTypes>(options: SwarmOptions<TSwarmT
         Swarm::dial_addr(&mut swarm, node.0.clone()).unwrap();
     }).collect::<()>();
  
-    swarm;
-
-    unimplemented!()
+    swarm
 }

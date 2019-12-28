@@ -282,6 +282,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
 
     /// Publishes a message to the network, if we're subscribed to the topic only.
     pub async fn publish(self, topic: TopicHash, data: Vec<u8>) {
+        println!("sending {:?} to {:?}", data, topic);
         self.swarm_events.send(SwarmEvent::Publish{topic, data}).await
     }
 
@@ -350,13 +351,15 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
                         Swarm::unban_peer_id(&mut self.swarm, peer_id)
                     }                        
                     Poll::Ready(Some(SwarmEvent::Subscribe(t))) => {
+                        println!("floodsub subscribe {:?}", t);
                         self.swarm.floodsub.subscribe(t);
                     }, 
                     Poll::Ready(Some(SwarmEvent::Unsubscribe(t))) => {
                         self.swarm.floodsub.unsubscribe(t);
                     }, 
-                    Poll::Ready(Some(SwarmEvent::Publish{topic, data})) => 
-                        self.swarm.floodsub.publish(topic, data), 
+                    Poll::Ready(Some(SwarmEvent::Publish{topic, data})) => {
+                        self.swarm.floodsub.publish(topic, data);
+                    }
                     Poll::Ready(Some(SwarmEvent::PublishAny{topic, data})) => 
                         self.swarm.floodsub.publish_any(topic, data), 
                     Poll::Ready(Some(SwarmEvent::PublishMany{topic, data})) => 

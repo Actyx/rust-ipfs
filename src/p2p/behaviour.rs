@@ -10,14 +10,15 @@ use libp2p::mdns::{Mdns, MdnsEvent};
 use libp2p::ping::{Ping, PingEvent};
 use libp2p::{Multiaddr, PeerId};
 use libp2p::floodsub::{Floodsub, FloodsubEvent, TopicHash, Topic};
+use futures::io::{AsyncRead, AsyncWrite};
 //use parity_multihash::Multihash;
 use std::sync::Arc;
-use tokio::prelude::*;
-
+use futures::task::{Poll, Context};
 
 /// Behaviour type.
 #[derive(NetworkBehaviour)]
-#[behaviour(out_event = "BehaviourOut" /*, poll_method = "poll" */)]
+#[behaviour(poll_method = "poll", out_event = "BehaviourOut")]
+// #[behaviour(poll_method = "poll")]
 pub struct Behaviour<TSubstream, TSwarmTypes: SwarmTypes> {
     pub mdns: Mdns<TSubstream>,
     // pub bitswap: Bitswap<TSubstream, TSwarmTypes>,
@@ -210,12 +211,13 @@ impl<TSubstream, TSwarmTypes: SwarmTypes> Behaviour<TSubstream, TSwarmTypes>
 }
 
 impl<TSubstream, TSwarmTypes: SwarmTypes> Behaviour<TSubstream, TSwarmTypes> {
-	fn poll<TEvent>(&mut self) -> Async<NetworkBehaviourAction<TEvent, BehaviourOut>> {
+
+	fn poll<TEvent>(&mut self, _ctx: &mut Context) -> Poll<NetworkBehaviourAction<TEvent, BehaviourOut>> {
 		if !self.events.is_empty() {
-			return Async::Ready(NetworkBehaviourAction::GenerateEvent(self.events.remove(0)))
+			return Poll::Ready(NetworkBehaviourAction::GenerateEvent(self.events.remove(0)))
 		}
 
-		Async::NotReady
+		Poll::Pending
 	}
 }
 
