@@ -9,7 +9,11 @@ use crate::error::Error;
 use libp2p::core::{InboundUpgrade, OutboundUpgrade, UpgradeInfo, upgrade::{self, Negotiated}};
 use protobuf::ProtobufError;
 use std::{io, iter};
-use tokio::prelude::*;
+use futures::future::TryFutureExt;
+use futures::future::FutureExt;
+use futures::future::Future;
+use futures::io::{AsyncRead, AsyncWrite};
+use std::pin::Pin;
 
 // Undocumented, but according to JS we our messages have a max size of 512*1024
 // https://github.com/ipfs/js-ipfs-bitswap/blob/d8f80408aadab94c962f6b88f343eb9f39fa0fcc/src/decision-engine/index.js#L16
@@ -28,21 +32,32 @@ impl UpgradeInfo for BitswapConfig {
     }
 }
 
-impl<C> InboundUpgrade<C> for BitswapConfig
-    where C: AsyncRead + AsyncWrite
+impl<TSocket> InboundUpgrade<TSocket> for BitswapConfig
+    where TSocket: AsyncRead + AsyncWrite + Send + Unpin + 'static,
 {
     type Output = Message<I>;
     type Error = Error;
-    type Future = upgrade::ReadOneThen<Negotiated<C>, (), fn(Vec<u8>, ()) -> Result<Self::Output, Self::Error>>;
+    type Future = Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>>>>;
 
     #[inline]
-    fn upgrade_inbound(self, socket: Negotiated<C>, info: Self::Info) -> Self::Future {
-        debug!("upgrade_inbound: {}", std::str::from_utf8(info).unwrap());
-        upgrade::read_one_then(socket, MAX_BUF_SIZE, (), |packet, ()| {
+    fn upgrade_inbound(self, mut socket: Negotiated<TSocket>, info: Self::Info) -> Self::Future {
+        Box::pin(async move {
+            debug!("upgrade_inbound: {}", std::str::from_utf8(info).unwrap());
+            let packet = upgrade::read_one(&mut socket, MAX_BUF_SIZE).await?;
             let message = Message::from_bytes(&packet)?;
             debug!("inbound message: {:?}", message);
             Ok(message)
         })
+        // upgrade::read_one(&mut socket, MAX_BUF_SIZE).and_then(|packet| {
+        //     let message = Message::from_bytes(&packet)?;
+        //     debug!("inbound message: {:?}", message);
+        //     Ok(message)
+        // }).boxed()
+        // upgrade::read_one_then(socket, MAX_BUF_SIZE, (), |packet, ()| {
+        //     let message = Message::from_bytes(&packet)?;
+        //     debug!("inbound message: {:?}", message);
+        //     Ok(message)
+        // })
     }
 }
 
@@ -96,19 +111,21 @@ impl UpgradeInfo for Message<O> {
     }
 }
 
-impl<C> OutboundUpgrade<C> for Message<O>
-where
-    C: AsyncRead + AsyncWrite,
+impl<TSocket> OutboundUpgrade<TSocket> for Message<O>
+    where TSocket: AsyncRead + AsyncWrite + Send + Unpin + 'static
 {
     type Output = ();
     type Error = io::Error;
-    type Future = upgrade::WriteOne<Negotiated<C>>;
+    type Future = Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>> + Send>>;
 
     #[inline]
-    fn upgrade_outbound(self, socket: Negotiated<C>, info: Self::Info) -> Self::Future {
-        debug!("upgrade_outbound: {}", std::str::from_utf8(info).unwrap());
-        let bytes = self.into_bytes();
-        upgrade::write_one(socket, bytes)
+    fn upgrade_outbound(self, mut socket: Negotiated<TSocket>, info: Self::Info) -> Self::Future {
+        Box::pin(async move {
+            debug!("upgrade_outbound: {}", std::str::from_utf8(info).unwrap());
+            let bytes = self.into_bytes();
+            upgrade::write_one(&mut socket, bytes).await?;
+            Ok(())
+        })
     }
 }
 

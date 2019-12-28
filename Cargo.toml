@@ -19,7 +19,7 @@ fnv = "*"
 futures = { version = "0.3", features = [ "compat", "io-compat", "async-await" ] }
 futures01 = { package = "futures", version = "0.1.18"}
 futures-util = "0.3.1"
-libp2p = { version = "0.13.1", git = "https://github.com/libp2p/rust-libp2p" }
+libp2p = { version = "0.13.1", path = "../../projects_git/rust-libp2p" }
 log = "*"
 multibase = "*"
 multihash = "*"

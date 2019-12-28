@@ -5,6 +5,7 @@
 //!
 //! The `Bitswap` struct implements the `NetworkBehaviour` trait. When used, it
 //! will allow providing and reciving IPFS blocks.
+use futures::task::Context;
 use crate::bitswap::ledger::{Ledger, Message, Priority, I, O};
 use crate::bitswap::protocol::BitswapConfig;
 use crate::bitswap::strategy::{Strategy, StrategyEvent};
@@ -13,11 +14,13 @@ use crate::p2p::SwarmTypes;
 use fnv::FnvHashSet;
 use libp2p::core::ConnectedPoint;
 use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourAction, PollParameters};
-use libp2p::swarm::protocols_handler::{OneShotHandler, ProtocolsHandler};
+use libp2p::swarm::protocols_handler::{OneShotHandler, ProtocolsHandler, IntoProtocolsHandler};
 use libp2p::{Multiaddr, PeerId};
 use std::collections::{HashMap, VecDeque};
 use std::marker::PhantomData;
 use tokio::prelude::*;
+use futures::task::Poll;
+use futures::io::{AsyncRead, AsyncWrite};
 
 /// Network behaviour that handles sending and receiving IPFS blocks.
 pub struct Bitswap<TSubstream, TSwarmTypes: SwarmTypes> {
@@ -133,9 +136,10 @@ impl<TSubstream, TSwarmTypes: SwarmTypes> Bitswap<TSubstream, TSwarmTypes> {
     }
 }
 
-impl<TSubstream, TSwarmTypes: SwarmTypes> NetworkBehaviour for Bitswap<TSubstream, TSwarmTypes>
-where
-    TSubstream: AsyncRead + AsyncWrite,
+impl<TSubstream, TSwarmTypes> NetworkBehaviour for Bitswap<TSubstream, TSwarmTypes>
+    where
+        TSubstream: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+        TSwarmTypes: SwarmTypes,
 {
     type ProtocolsHandler = OneShotHandler<TSubstream, BitswapConfig, Message<O>, InnerMessage>;
     type OutEvent = ();
@@ -203,9 +207,9 @@ where
         // TODO: Remove cancelled blocks from `SendEvent`.
         debug!("");
     }
-
-    fn poll(&mut self, _: &mut impl PollParameters)
-        -> Async<NetworkBehaviourAction<<Self::ProtocolsHandler as ProtocolsHandler>::InEvent, Self::OutEvent>>
+    fn poll(&mut self, _: &mut Context, _: &mut impl PollParameters)
+        -> Poll<NetworkBehaviourAction<<<Self::ProtocolsHandler as IntoProtocolsHandler>::Handler as ProtocolsHandler>::InEvent, Self::OutEvent>>
+        // -> Async<NetworkBehaviourAction<<Self::ProtocolsHandler as ProtocolsHandler>::InEvent, Self::OutEvent>>
     {
         // TODO concat messages to same destination to reduce traffic.
         if let Some(event) = self.events.pop_front() {
@@ -220,7 +224,7 @@ where
                 } else {
                     ledger.unwrap().update_outgoing_stats(&event);
                     debug!("  send_message to {}", peer_id.to_base58());
-                    return Async::Ready(NetworkBehaviourAction::SendEvent {
+                    return Poll::Ready(NetworkBehaviourAction::SendEvent {
                         peer_id,
                         event,
                     });
@@ -228,7 +232,7 @@ where
             } else {
                 debug!("{:?}", event);
                 debug!("");
-                return Async::Ready(event);
+                return Poll::Ready(event);
             }
         }
 
@@ -240,7 +244,7 @@ where
             None => {}
         }
 
-        Async::NotReady
+        Poll::Pending
     }
 }
 

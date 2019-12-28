@@ -143,11 +143,11 @@ pub struct UninitializedIpfs<Types: IpfsTypes> {
 }
 
 impl<Types: IpfsTypes> UninitializedIpfs<Types> {
-    pub fn new(options: IpfsOptions<Types>) -> Self {
+    pub async fn new(options: IpfsOptions<Types>) -> Self {
         let repo_options = RepoOptions::<Types>::from(&options);
         let (repo, repo_events) = create_repo(repo_options);
         let swarm_options = SwarmOptions::<Types>::from(&options);
-        let swarm = create_swarm(swarm_options, repo.clone());
+        let swarm = create_swarm(swarm_options, repo.clone()).await;
         let dag = IpldDag::new(repo.clone());
 
         UninitializedIpfs {
@@ -160,8 +160,6 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
 
     /// Initialize the ipfs repo.
     pub async fn start(mut self) -> Result<(Ipfs<Types>, impl std::future::Future<Output = ()>), Error> {
-        use futures::compat::Stream01CompatExt;
-
         let (repo_events, swarm) = self.moved_on_init
             .take()
             .expect("Cant see how this should happen");
@@ -176,7 +174,7 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
 
 
         let fut = IpfsFuture {
-            swarm: swarm.compat(),
+            swarm: swarm,
             repo_events,
             exit_events: receiver,
             swarm_events: swarm_receiver,
@@ -198,8 +196,8 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
 
 impl<Types: IpfsTypes> Ipfs<Types> {
     /// Creates a new ipfs node.
-    pub fn new(options: IpfsOptions<Types>) -> UninitializedIpfs<Types> {
-        UninitializedIpfs::new(options)
+    pub async fn new(options: IpfsOptions<Types>) -> UninitializedIpfs<Types> {
+        UninitializedIpfs::new(options).await
     }
 
     /// Puts a block into the ipfs repo.
@@ -305,7 +303,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
 }
 
 pub struct IpfsFuture<Types: SwarmTypes> {
-    swarm: futures::compat::Compat01As03<TSwarm<Types>>,
+    swarm: TSwarm<Types>,
     repo_events: Receiver<RepoEvent>,
     exit_events: Receiver<IpfsEvent>,
     swarm_events: async_std::sync::Receiver<SwarmEvent>,
@@ -336,31 +334,35 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
             loop {
                 let pin = Pin::new(&mut self.swarm_events);
                 match pin.poll_next(ctx) {
-                    Poll::Ready(Some(SwarmEvent::DialAddr(multiaddr))) => 
-                        Swarm::dial_addr(&mut self.swarm.get_mut(), multiaddr.clone()).expect("should work :-)"),
-                    Poll::Ready(Some(SwarmEvent::Dial(peer_id))) => 
-                        Swarm::dial(&mut self.swarm.get_mut(), peer_id.clone()),
-                    Poll::Ready(Some(SwarmEvent::AddExternalAddress(multiaddr))) => 
-                        Swarm::add_external_address(self.swarm.get_mut(), multiaddr),
-                    Poll::Ready(Some(SwarmEvent::BanPeerId(peer_id))) => 
-                        Swarm::ban_peer_id(self.swarm.get_mut(), peer_id),
-                    Poll::Ready(Some(SwarmEvent::UnbanPeerId(peer_id))) => 
-                        Swarm::unban_peer_id(self.swarm.get_mut(), peer_id),
-                        
+                    Poll::Ready(Some(SwarmEvent::DialAddr(multiaddr))) => {
+                        Swarm::dial_addr(&mut self.swarm, multiaddr.clone()).expect("should work :-)")
+                    }
+                    Poll::Ready(Some(SwarmEvent::Dial(peer_id))) => {
+                        Swarm::dial(&mut self.swarm, peer_id.clone())
+                    }
+                    Poll::Ready(Some(SwarmEvent::AddExternalAddress(multiaddr))) => {
+                        Swarm::add_external_address(&mut self.swarm, multiaddr)
+                    }
+                    Poll::Ready(Some(SwarmEvent::BanPeerId(peer_id))) => {
+                        Swarm::ban_peer_id(&mut self.swarm, peer_id)
+                    }
+                    Poll::Ready(Some(SwarmEvent::UnbanPeerId(peer_id))) => {
+                        Swarm::unban_peer_id(&mut self.swarm, peer_id)
+                    }                        
                     Poll::Ready(Some(SwarmEvent::Subscribe(t))) => {
-                        self.swarm.get_mut().floodsub.subscribe(t);
+                        self.swarm.floodsub.subscribe(t);
                     }, 
                     Poll::Ready(Some(SwarmEvent::Unsubscribe(t))) => {
-                        self.swarm.get_mut().floodsub.unsubscribe(t);
+                        self.swarm.floodsub.unsubscribe(t);
                     }, 
                     Poll::Ready(Some(SwarmEvent::Publish{topic, data})) => 
-                        self.swarm.get_mut().floodsub.publish(topic, data), 
+                        self.swarm.floodsub.publish(topic, data), 
                     Poll::Ready(Some(SwarmEvent::PublishAny{topic, data})) => 
-                        self.swarm.get_mut().floodsub.publish_any(topic, data), 
+                        self.swarm.floodsub.publish_any(topic, data), 
                     Poll::Ready(Some(SwarmEvent::PublishMany{topic, data})) => 
-                        self.swarm.get_mut().floodsub.publish_many(topic, data), 
+                        self.swarm.floodsub.publish_many(topic, data), 
                     Poll::Ready(Some(SwarmEvent::PublishManyAny{topic, data})) => 
-                        self.swarm.get_mut().floodsub.publish_many_any(topic, data),  
+                        self.swarm.floodsub.publish_many_any(topic, data),  
                     Poll::Ready(None) => panic!("swarm_events should never be closed?"),
                     Poll::Pending => break,
                 }
@@ -371,11 +373,11 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
                     let pin = Pin::new(&mut self.repo_events);
                     match pin.poll_next(ctx) {
                         Poll::Ready(Some(RepoEvent::WantBlock(cid))) =>
-                            self.swarm.get_mut().want_block(cid),
+                            self.swarm.want_block(cid),
                         Poll::Ready(Some(RepoEvent::ProvideBlock(cid))) =>
-                            self.swarm.get_mut().provide_block(cid),
+                            self.swarm.provide_block(cid),
                         Poll::Ready(Some(RepoEvent::UnprovideBlock(cid))) =>
-                            self.swarm.get_mut().stop_providing_block(&cid),
+                            self.swarm.stop_providing_block(&cid),
                         Poll::Ready(None) => panic!("other side closed the repo_events?"),
                         Poll::Pending => break,
                     }
@@ -383,7 +385,7 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
             }
 
             {
-                let poll = Pin::new(&mut self.swarm).poll_next(ctx);
+                let poll = futures::stream::Stream::poll_next(Pin::new(&mut self.swarm), ctx);
                 match poll {
                     Poll::Ready(Some(Ok(msg @ PubSubOut::FloodsubMessage{ .. }))) => {
                         let _unused = self.pubsub_sender.send(msg).boxed().as_mut().poll(ctx);
@@ -426,7 +428,7 @@ mod tests {
             tokio::spawn(fut.unit_error().boxed().compat());
 
             let cid: Cid = ipfs.put_block(block.clone()).await.unwrap();
-            let new_block = ipfs.get_block(&cid).await.unwrap();
+            let new_block = ipfs.get_block(cid).await.unwrap();
             assert_eq!(block, new_block);
 
             ipfs.exit_daemon();

@@ -17,10 +17,10 @@ use tokio::prelude::*;
 
 /// Behaviour type.
 #[derive(NetworkBehaviour)]
-#[behaviour(out_event = "BehaviourOut", poll_method = "poll")]
-pub struct Behaviour<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes> {
+#[behaviour(out_event = "BehaviourOut" /*, poll_method = "poll" */)]
+pub struct Behaviour<TSubstream, TSwarmTypes: SwarmTypes> {
     pub mdns: Mdns<TSubstream>,
-    pub bitswap: Bitswap<TSubstream, TSwarmTypes>,
+    // pub bitswap: Bitswap<TSubstream, TSwarmTypes>,
     pub ping: Ping<TSubstream>,
     pub identify: Identify<TSubstream>,
     pub floodsub: Floodsub<TSubstream>,
@@ -28,9 +28,12 @@ pub struct Behaviour<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes
     /// Queue of events to produce for the outside.
     #[behaviour(ignore)]
     events: Vec<BehaviourOut>,
+
+    #[behaviour(ignore)]
+    _dummy: std::marker::PhantomData<TSwarmTypes>,
 }
 
-impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes>
+impl<TSubstream, TSwarmTypes: SwarmTypes>
     NetworkBehaviourEventProcess<MdnsEvent> for
     Behaviour<TSubstream, TSwarmTypes>
 {
@@ -39,7 +42,7 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes>
             MdnsEvent::Discovered(list) => {
                 for (peer, _) in list {
                     debug!("mdns: Discovered peer {}", peer.to_base58());
-                    self.bitswap.connect(peer.clone());
+                    // self.bitswap.connect(peer.clone());
                     self.floodsub.add_node_to_partial_view(peer);
                 }
             }
@@ -93,14 +96,14 @@ pub enum SwarmEvent {
     },
 }
 
-impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes>
+impl<TSubstream, TSwarmTypes: SwarmTypes>
     NetworkBehaviourEventProcess<()> for
     Behaviour<TSubstream, TSwarmTypes>
 {
     fn inject_event(&mut self, _event: ()) {
     }
 }
-impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes>
+impl<TSubstream, TSwarmTypes: SwarmTypes>
     NetworkBehaviourEventProcess<SwarmEvent> for
     Behaviour<TSubstream, TSwarmTypes>
 {
@@ -108,7 +111,7 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes>
     }
 }
 
-impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes>
+impl<TSubstream, TSwarmTypes: SwarmTypes>
     NetworkBehaviourEventProcess<PingEvent> for
     Behaviour<TSubstream, TSwarmTypes>
 {
@@ -131,7 +134,7 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes>
     }
 }
 
-impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes>
+impl<TSubstream, TSwarmTypes: SwarmTypes>
     NetworkBehaviourEventProcess<IdentifyEvent> for
     Behaviour<TSubstream, TSwarmTypes>
 {
@@ -144,7 +147,7 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes>
     }
 }
 
-impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes>
+impl<TSubstream, TSwarmTypes: SwarmTypes>
 NetworkBehaviourEventProcess<FloodsubEvent> for
 Behaviour<TSubstream, TSwarmTypes>
 {
@@ -164,14 +167,14 @@ Behaviour<TSubstream, TSwarmTypes>
         }
     }
 }
-impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes> Behaviour<TSubstream, TSwarmTypes>
+impl<TSubstream, TSwarmTypes: SwarmTypes> Behaviour<TSubstream, TSwarmTypes>
 {
-    pub fn new(options: SwarmOptions<TSwarmTypes>, repo: Repo<TSwarmTypes>) -> Self {
+    pub async fn new(options: SwarmOptions<TSwarmTypes>, repo: Repo<TSwarmTypes>) -> Self {
         info!("Local peer id: {}", options.peer_id.to_base58());
 
-        let mdns = Mdns::new().expect("Failed to create mDNS service");
+        let mdns = Mdns::new().await.expect("Failed to create mDNS service");
         let strategy = TSwarmTypes::TStrategy::new(repo);
-        let bitswap = Bitswap::new(strategy);
+        // let bitswap = Bitswap::new(strategy);
         let ping = Ping::default();
         let identify = Identify::new(
             "/ipfs/0.1.0".into(),
@@ -182,18 +185,19 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes> Behaviour<TSub
 
         Behaviour {
             mdns,
-            bitswap,
+            // bitswap,
             ping,
             identify,
             floodsub,
-			events: Vec::new(),
+            events: Vec::new(),
+            _dummy: std::marker::PhantomData,
         }
     }
 
    
     pub fn want_block(&mut self, cid: Cid) {
         info!("Want block {}", cid.to_string());
-        self.bitswap.want_block(cid, 1);
+        // self.bitswap.want_block(cid, 1);
     }
 
     pub fn provide_block(&mut self, cid: Cid) {
@@ -205,7 +209,7 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes> Behaviour<TSub
     }
 }
 
-impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes> Behaviour<TSubstream, TSwarmTypes> {
+impl<TSubstream, TSwarmTypes: SwarmTypes> Behaviour<TSubstream, TSwarmTypes> {
 	fn poll<TEvent>(&mut self) -> Async<NetworkBehaviourAction<TEvent, BehaviourOut>> {
 		if !self.events.is_empty() {
 			return Async::Ready(NetworkBehaviourAction::GenerateEvent(self.events.remove(0)))
@@ -219,7 +223,7 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes> Behaviour<TSub
 pub(crate) type TBehaviour<TSwarmTypes> = Behaviour<SubstreamRef<Arc<StreamMuxerBox>>, TSwarmTypes>;
 
 /// Create a IPFS behaviour with the IPFS bootstrap nodes.
-pub fn build_behaviour<TSwarmTypes: SwarmTypes>(options: SwarmOptions<TSwarmTypes>, repo: Repo<TSwarmTypes>) -> TBehaviour<TSwarmTypes> {
+pub async fn build_behaviour<TSwarmTypes: SwarmTypes>(options: SwarmOptions<TSwarmTypes>, repo: Repo<TSwarmTypes>) -> TBehaviour<TSwarmTypes> {
     info!("Behaviour::new {}", options.peer_id);
-    Behaviour::new(options, repo)
+    Behaviour::new(options, repo).await
 }

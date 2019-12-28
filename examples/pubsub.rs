@@ -31,7 +31,7 @@ fn main() {
                 Async::Ready(Some(line)) => {
                   let topic = TopicHash::from(TopicBuilder::new("hello").build());
                   // one poll is enough for demo
-                  let _unused = ipfs_cp.publish(topic, Vec::from(line)).unit_error().boxed().compat().poll();
+                  let _unused = ipfs_cp.clone().publish(topic, Vec::from(line)).unit_error().boxed().compat().poll();
                 }
                 Async::Ready(None) => panic!("Stdin closed"),
                 Async::NotReady => break,
@@ -52,10 +52,10 @@ fn main() {
         });
         
 
-        ipfs.subscribe(TopicBuilder::new("P2VtoJ7jk").build()).await;
+        ipfs.clone().subscribe(TopicBuilder::new("P2VtoJ7jk").build()).await;
 
         let topic = TopicBuilder::new("hello").build();
-        ipfs.subscribe(topic.clone()).await;
+        ipfs.clone().subscribe(topic.clone()).await;
         
         // wait for peer connect
         let _task = Delay::new(Instant::now() + Duration::from_millis(1000)).compat().await.unwrap();
