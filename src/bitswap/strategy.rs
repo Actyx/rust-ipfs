@@ -12,6 +12,7 @@ pub trait Strategy<TRepoTypes: RepoTypes>: Send + Unpin {
     fn poll(&self) -> Option<StrategyEvent>;
 }
 
+#[derive(Debug)]
 pub enum StrategyEvent {
     Send {
         peer_id: PeerId,
@@ -38,6 +39,7 @@ impl<TRepoTypes: RepoTypes> Strategy<TRepoTypes> for AltruisticStrategy<TRepoTyp
         let mut repo = self.repo.clone();
 
         task::spawn(async move {
+            info!("process_want");
             let res = repo.get_block(&cid).await;
 
             let block = if let Err(e) = res {
@@ -47,6 +49,7 @@ impl<TRepoTypes: RepoTypes> Strategy<TRepoTypes> for AltruisticStrategy<TRepoTyp
                 res.unwrap()
             };
 
+            info!("send {:?}", block);
             let req = StrategyEvent::Send {
                 peer_id: source.clone(),
                 block: block,
@@ -75,7 +78,11 @@ impl<TRepoTypes: RepoTypes> Strategy<TRepoTypes> for AltruisticStrategy<TRepoTyp
     }
 
     fn poll(&self) -> Option<StrategyEvent> {
-        self.events.1.try_recv().ok()
+        let res = self.events.1.try_recv().ok();
+        if res.is_some() {
+            println!("strategy poll {:?}", res);
+        }
+        res        
     }
 }
 

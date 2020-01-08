@@ -73,7 +73,7 @@ impl<TSubstream, TSwarmTypes: SwarmTypes> Bitswap<TSubstream, TSwarmTypes> {
         let ledger = self.connected_peers.get_mut(&peer_id)
             .expect("Peer not in ledger?!");
         let message = ledger.send_block(block);
-        debug!("  queuing block for {}", peer_id.to_base58());
+        info!("  queuing block for {}", peer_id.to_base58());
         self.events.push_back(NetworkBehaviourAction::SendEvent {
             peer_id,
             event: message,
@@ -104,7 +104,7 @@ impl<TSubstream, TSwarmTypes: SwarmTypes> Bitswap<TSubstream, TSwarmTypes> {
         debug!("bitswap: want_block");
         for (peer_id, ledger) in self.connected_peers.iter_mut() {
             let message = ledger.want_block(&cid, priority);
-            debug!("  queuing want for {}", peer_id.to_base58());
+            info!("  queuing want for {}", peer_id.to_base58());
             self.events.push_back(NetworkBehaviourAction::SendEvent {
                 peer_id: peer_id.to_owned(),
                 event: message,
@@ -123,7 +123,7 @@ impl<TSubstream, TSwarmTypes: SwarmTypes> Bitswap<TSubstream, TSwarmTypes> {
         for (peer_id, ledger) in self.connected_peers.iter_mut() {
             let message = ledger.cancel_block(cid);
             if message.is_some() {
-                debug!("  queuing cancel for {}", peer_id.to_base58());
+                info!("  queuing cancel for {}", peer_id.to_base58());
                 self.events.push_back(NetworkBehaviourAction::SendEvent {
                     peer_id: peer_id.to_owned(),
                     event: message.unwrap(),
@@ -222,7 +222,7 @@ impl<TSubstream, TSwarmTypes> NetworkBehaviour for Bitswap<TSubstream, TSwarmTyp
                     });
                 } else {
                     ledger.unwrap().update_outgoing_stats(&event);
-                    debug!("  send_message to {}", peer_id.to_base58());
+                    info!("  send_message to {}", peer_id.to_base58());
                     return Poll::Ready(NetworkBehaviourAction::SendEvent {
                         peer_id,
                         event,
@@ -237,6 +237,7 @@ impl<TSubstream, TSwarmTypes> NetworkBehaviour for Bitswap<TSubstream, TSwarmTyp
 
         match self.strategy.poll() {
             Some(StrategyEvent::Send { peer_id, block }) => {
+                info!("got send event");                
                 self.send_block(peer_id, block);
                 ctx.waker().wake_by_ref();
             }

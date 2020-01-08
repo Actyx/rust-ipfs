@@ -11,6 +11,8 @@ use libp2p::ping::{Ping, PingEvent};
 use libp2p::{Multiaddr, PeerId};
 use libp2p::floodsub::{Floodsub, FloodsubEvent, TopicHash, Topic};
 use futures::io::{AsyncRead, AsyncWrite};
+use libp2p::kad::record::store::MemoryStore;
+use libp2p::kad::{record::Key, Kademlia, KademliaEvent, PutRecordOk, Quorum, Record};
 //use parity_multihash::Multihash;
 use std::sync::Arc;
 use futures::task::{Poll, Context};
@@ -20,6 +22,7 @@ use futures::task::{Poll, Context};
 #[behaviour(poll_method = "poll", out_event = "BehaviourOut")]
 // #[behaviour(poll_method = "poll")]
 pub struct Behaviour<TSubstream, TSwarmTypes: SwarmTypes> {
+    pub kademlia: Kademlia<TSubstream, MemoryStore>,
     pub mdns: Mdns<TSubstream>,
     pub bitswap: Bitswap<TSubstream, TSwarmTypes>,
     pub ping: Ping<TSubstream>,
@@ -38,16 +41,17 @@ impl<TSubstream, TSwarmTypes: SwarmTypes>
     fn inject_event(&mut self, event: MdnsEvent) {
         match event {
             MdnsEvent::Discovered(list) => {
-                for (peer, _) in list {
-                    debug!("mdns: Discovered peer {}", peer.to_base58());
-                    // self.bitswap.connect(peer.clone());
+                for (peer, multiaddr) in list {
+                    debug!("mdns: Discovered peer {} {}", peer.to_base58(), multiaddr);
+                    self.kademlia.add_address(&peer, multiaddr);
+                    self.bitswap.connect(peer.clone());
                     self.floodsub.add_node_to_partial_view(peer);
                 }
             }
             MdnsEvent::Expired(list) => {
                 for (peer, _) in list {
                     if !self.mdns.has_node(&peer) {
-                        info!("mdns: Expired peer {}", peer.to_base58());
+                        debug!("mdns: Expired peer {}", peer.to_base58());
                         self.floodsub.remove_node_from_partial_view(&peer);
                     }
                 }
@@ -91,6 +95,17 @@ pub enum SwarmEvent {
     PublishManyAny {
         topic: Vec<TopicHash>,
         data: Vec<u8>,
+    },
+    PutRecord {
+        record: Record,
+        quorum: Quorum,
+    },
+    GetRecord {
+        key: Key,
+        quorum: Quorum,
+    },
+    FindProviders {
+        key: Key,
     },
 }
 
@@ -165,6 +180,40 @@ Behaviour<TSubstream, TSwarmTypes>
         }
     }
 }
+
+impl<TSubstream, TSwarmTypes: SwarmTypes> NetworkBehaviourEventProcess<KademliaEvent> for
+Behaviour<TSubstream, TSwarmTypes>
+{
+    // Called when `kademlia` produces an event.
+    fn inject_event(&mut self, message: KademliaEvent) {
+        println!("Kademlia event {:?}", message);
+        match message {
+            KademliaEvent::GetRecordResult(Ok(result)) => {
+                for Record { key, value, .. } in result.records {
+                    println!(
+                        "Got record {:?} {:?}",
+                        std::str::from_utf8(key.as_ref()).unwrap(),
+                        std::str::from_utf8(&value).unwrap(),
+                    );
+                }
+            }
+            KademliaEvent::GetRecordResult(Err(err)) => {
+                eprintln!("Failed to get record: {:?}", err);
+            }
+            KademliaEvent::PutRecordResult(Ok(PutRecordOk { key })) => {
+                println!(
+                    "Successfully put record {:?}",
+                    std::str::from_utf8(key.as_ref()).unwrap()
+                );
+            }
+            KademliaEvent::PutRecordResult(Err(err)) => {
+                eprintln!("Failed to put record: {:?}", err);
+            }
+            _ => {}
+        }
+    }
+}
+
 impl<TSubstream, TSwarmTypes: SwarmTypes> Behaviour<TSubstream, TSwarmTypes>
 {
     pub async fn new(options: SwarmOptions<TSwarmTypes>, repo: Repo<TSwarmTypes>) -> Self {
@@ -180,8 +229,11 @@ impl<TSubstream, TSwarmTypes: SwarmTypes> Behaviour<TSubstream, TSwarmTypes>
             options.key_pair.public(),
         );
         let floodsub = Floodsub::new(options.peer_id.to_owned());
+        let store = MemoryStore::new(options.peer_id.clone());
+        let kademlia = Kademlia::new(options.peer_id.clone(), store);
 
         Behaviour {
+            kademlia,
             mdns,
             bitswap,
             ping,

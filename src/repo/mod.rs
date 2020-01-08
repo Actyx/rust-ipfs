@@ -9,6 +9,7 @@ use std::marker::PhantomData;
 use std::path::PathBuf;
 use futures::channel::mpsc::{channel, Sender, Receiver};
 use futures::SinkExt;
+use async_std::prelude::*;
 
 pub mod mem;
 pub mod fs;
@@ -133,15 +134,15 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
     /// Retrives a block from the block store.
     pub async fn get_block(&mut self, cid: &Cid) -> Result<Block, Error>
     {
+        info!("blockstore get_block {}", cid);
         // FIXME: this should probably be a value in the right hand side of some
         // Map<Cid, Vec<_>> which would always be checked during put_block? Not sure what would
         // work here, maybe mpsc::oneshot? While unlikely that there is ever many at once.
         // futures_intrusive would have ManualResetEvent?
-        use futures::compat::Future01CompatExt;
-        use std::time::{Instant, Duration};
-        use tokio::timer::Delay;
+        use std::time::Duration;
         let mut once = true;
         loop {
+            info!("blockstore get_block loop {}", cid);
             if !self.block_store.contains(&cid).await? {
                 // sending only fails if no one is listening anymore
                 // and that is okay with us.
@@ -151,6 +152,8 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
                 Some(block) => {
                     if !once {
                         info!("got block later: {}", cid);
+                    } else {
+                        info!("got block immediately: {}", cid);
                     }
                     return Ok(block);
                 },
@@ -159,7 +162,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
                         once = false;
                         info!("getting block later: {}", cid);
                     }
-                    Delay::new(Instant::now() + Duration::from_millis(5000)).compat().await.unwrap();
+                    futures::future::ready(()).delay(Duration::from_millis(1000)).await;
                     continue
                 },
             }

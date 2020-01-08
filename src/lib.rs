@@ -10,6 +10,7 @@ use futures::channel::mpsc::{channel, Sender, Receiver};
 use std::future::Future;
 use futures_util::future::FutureExt;
 use libp2p::Swarm;
+use libp2p::kad::{Record, Quorum};
 
 pub mod bitswap;
 pub mod block;
@@ -301,6 +302,17 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     pub async fn publish_many_any(self, topic: Vec<libp2p::floodsub::TopicHash>, data: Vec<u8>) {
         self.swarm_events.send(SwarmEvent::PublishManyAny{topic, data}).await
     }
+
+    pub async fn put_record(self, record: Record, quorum: Quorum) {
+        self.swarm_events.send(SwarmEvent::PutRecord { record, quorum}).await
+    }
+
+    pub async fn get_record(self, key: libp2p::kad::record::Key, quorum: Quorum) {
+        self.swarm_events.send(SwarmEvent::GetRecord { key, quorum }).await
+    }
+    pub async fn get_providers(self, key: libp2p::kad::record::Key) {
+        self.swarm_events.send(SwarmEvent::FindProviders { key }).await
+    }
 }
 
 pub struct IpfsFuture<Types: SwarmTypes> {
@@ -365,7 +377,19 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
                     Poll::Ready(Some(SwarmEvent::PublishMany{topic, data})) => 
                         self.swarm.floodsub.publish_many(topic, data), 
                     Poll::Ready(Some(SwarmEvent::PublishManyAny{topic, data})) => 
-                        self.swarm.floodsub.publish_many_any(topic, data),  
+                        self.swarm.floodsub.publish_many_any(topic, data),
+                    Poll::Ready(Some(SwarmEvent::PutRecord { record, quorum })) => {
+                        println!("put_record {:?} {:?}", record, quorum);
+                        self.swarm.kademlia.put_record(record, quorum);
+                    }, 
+                    Poll::Ready(Some(SwarmEvent::GetRecord { key, quorum })) => {
+                        println!("get_record {:?} {:?}", key, quorum);
+                        self.swarm.kademlia.get_record(&key, quorum);
+                    }, 
+                    Poll::Ready(Some(SwarmEvent::FindProviders { key })) => {
+                        println!("find providers {:?}", key);
+                        self.swarm.kademlia.get_providers(key);
+                    }, 
                     Poll::Ready(None) => panic!("swarm_events should never be closed?"),
                     Poll::Pending => break,
                 }
